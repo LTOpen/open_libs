@@ -68,7 +68,7 @@ function updateHighlight() {
                     }
                 }
             }
-            else if (_langVCol < cnVTextCol - 1 + 1) {
+            else if (_langVCol < cnVTextCol + 1) {
                 MsgBox(`输入的列数过小，列${_langVCol}`)
                 return EXP_MSG
             }
@@ -95,7 +95,7 @@ function updateHighlight() {
         _VDict = {};
         _cnVDict = {};
         for (let i = 0; i < shtArr.length; i++) {
-            let _cn = shtArr[i][cnVTextCol - 1 - 1];
+            let _cn = shtArr[i][cnVTextCol - 1];
             if (_cn) {
                 if (_cn in _cnVDict) {
                     _cnVDict[_cn].push(i + 1);
@@ -106,8 +106,12 @@ function updateHighlight() {
             }
 
             let _key = `${shtArr[i][0]}_${shtArr[i][1]}_${shtArr[i][2]}`;
+            let _empty_key = 'undefined_undefined_undefined'
             if (_key) {
-                if (_key in _VDict) {
+                if (_key === _empty_key) {
+                    continue;
+                }
+                else if (_key in _VDict) {
                     if (shtArr[i][obsolateVCol - 1] !== "已废弃") {
                         MsgBox(`总表发现重复Key: ${_key}，请检查总表`);
                         return [false, false];
@@ -192,7 +196,7 @@ function updateHighlight() {
         return;
     }
 
-    if (arr[0].length < cnVTextCol - 1 + 1) {
+    if (arr[0].length < cnVTextCol + 1) {
         MsgBox("总表列数太少，请确认选择了正确的总表！")
         return;
     }
@@ -230,8 +234,8 @@ function updateHighlight() {
 
     //更新逻辑
     if (langVCol === 0) {
-        let enTextCol = cnVTextCol - 1;
-        for (let col = enTextCol; col < newArr[0].length; col++) {
+        let enVTextCol = cnVTextCol + 1;
+        for (let col = enVTextCol - 1; col < newArr[0].length; col++) {
             updateOneColumn(arr, newArr, col, keyVDict, cnVDict, newColorDict, isHighlightOnly, sht)
         }
     }
