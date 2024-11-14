@@ -1,13 +1,16 @@
 const hlColor = 65535;
 const noColor = 16777215;
 const largeFileRowCount = 10000;
-const cnTextCol = 6;
+const cnVTextCol = 6;
 const projectSheetName = "new_translate";
-const obsolateCol = 5;
+const obsolateVCol = 5;
 function updateHighlight() {
 
     function getNewShtArr(shtPath, loadColor = true) {
+        // 返回值_newArr全表内容, _colorDict单元格颜色信息, _langCol需要更新的列
+        // _langVCol为0时默认全部更新
         // 获取返稿文本和颜色信息
+        const EXP_MSG = [false, false, false]
         if (shtPath === "") {
             MsgBox("未输入文件路径，已退出程序。");
             return;
@@ -19,7 +22,7 @@ function updateHighlight() {
         }
         catch (error) {
             MsgBox("无法打开工作簿，请确认选择了正确的表格：" + error.message);
-            return;
+            return EXP_MSG;
         }
 
         let newShtName = InputBox("输入使用的页签名称或顺序编号。", "选择页签", `${newWorkbook.ActiveSheet.Name}`);
@@ -36,44 +39,48 @@ function updateHighlight() {
         catch (error) {
             MsgBox("无法访问新工作簿中的工作表：" + error.message);
             newWorkbook.Close(false);  // 关闭新工作簿，不保存更改
-            return [false, false, false];
+            return EXP_MSG;
         }
         const getInfo = MsgBox(`确定从返稿的页签 ${newSht.Name} 中获取信息吗？`, jsOKCancel);
         if (getInfo === 2) {
             newWorkbook.Close(false);
-            return [false, false, false];
+            return EXP_MSG;
         }
         const _newArr = newSht.UsedRange.Value2;
-        let _langCol = 0;
+        let _langVCol = 0;
         if (_newArr.length > largeFileRowCount) {
-            _langCol = InputBox("由于返稿文本量巨大，为避免卡死，请先输入一列进行更新 (如C列输入数字3)", "输入列号", "3");
-            if (_langCol === "") {
+            _langVCol = InputBox("由于返稿文本量巨大，为避免卡死，请先输入一列进行更新 (如C列输入数字3)", "输入列号", "7");
+            if (_langVCol === "") {
                 newWorkbook.Close(false);
-                return [false, false, false];
+                return EXP_MSG;
             }
-            _langCol = Number(_langCol);
+            _langVCol = Number(_langVCol);
         }
 
         const _colorDict = {};
         if (loadColor) {
             const lr = newSht.UsedRange.Item(newSht.UsedRange.Count).Row;
-            // const lc = newSht.UsedRange.Item(newSht.UsedRange.Count).Column;
-            if (_langCol < cnTextCol + 1) {
+            const lc = newSht.UsedRange.Item(newSht.UsedRange.Count).Column;
+            if (_langVCol === 0) {
                 for (let r = 1; r <= lr; r++) {
-                    for (let c = 1; c <= _langCol; c++) {
+                    for (let c = 1; c <= lc; c++) {
                         _colorDict[`${r - 1}:${c - 1}`] = newSht.UsedRange.Item(r, c).Interior.Color;
                     }
                 }
             }
+            else if (_langVCol < cnVTextCol - 1 + 1) {
+                MsgBox(`输入的列数过小，列${_langVCol}`)
+                return EXP_MSG
+            }
             else {
                 for (let r = 1; r <= lr; r++) {
-                    _colorDict[`${r - 1}:${_langCol - 1}`] = newSht.UsedRange.Item(r, _langCol).Interior.Color;
+                    _colorDict[`${r - 1}:${_langVCol - 1}`] = newSht.UsedRange.Item(r, _langVCol).Interior.Color;
                 }
             }
         }
 
         newWorkbook.Close(false);
-        return [_newArr, _colorDict, _langCol];
+        return [_newArr, _colorDict, _langVCol];
     }
 
     // 获取原表Key, 有key的情况取key，无key的情况用中文作为索引，对应列为表格行
@@ -84,60 +91,63 @@ function updateHighlight() {
 
     function getKeyDict(shtArr) {
         // 记录所有中文对应的行，记录所有key对应的行
-        _dict = {};
-        _cnDict = {};
+        // VDict, cnVDict记录视觉上的行号
+        _VDict = {};
+        _cnVDict = {};
         for (let i = 0; i < shtArr.length; i++) {
-            let _cn = shtArr[i][cnTextCol];
+            let _cn = shtArr[i][cnVTextCol - 1 - 1];
             if (_cn) {
-                if (_cn in _cnDict) {
-                    _cnDict[_cn].push(i + 1);
+                if (_cn in _cnVDict) {
+                    _cnVDict[_cn].push(i + 1);
                 }
                 else {
-                    _cnDict[_cn] = [i + 1];
+                    _cnVDict[_cn] = [i + 1];
                 }
             }
 
             let _key = `${shtArr[i][0]}_${shtArr[i][1]}_${shtArr[i][2]}`;
             if (_key) {
-                if (_key in _dict) {
-                    if (shtArr[i][obsolateCol - 1] !== "已废弃") {
+                if (_key in _VDict) {
+                    if (shtArr[i][obsolateVCol - 1] !== "已废弃") {
                         MsgBox(`总表发现重复Key: ${_key}，请检查总表`);
                         return [false, false];
                     }
                 }
                 else {
-                    _dict[_key] = i + 1;
+                    _VDict[_key] = i + 1;
                 }
             }
         }
-        return [_dict, _cnDict];
+        return [_VDict, _cnVDict];
     }
 
-    // 对单列进行更新
-    // 精简为两种情况: 返稿有key则key匹配(1), 返稿无key则中文匹配空行(2,3)
-    function updateOneColumn(uArr, uNewArr, uCol, uKeyDict, uCnDict, uColorDict, uIsHighlight, uSht) {
+
+    function updateOneColumn(uArr, uNewArr, uCol, uKeyVDict, uCnVDict, uColorDict, uIsHighlight, uSht) {
+        // 对单列进行更新
+        // 精简为两种情况: 返稿有key则key匹配(1), 返稿无key则中文匹配空行(2,3)
+        // uCol传入的是数组中的列号，而非视觉上的列号
         if (uIsHighlight === true) {
             for (let row = 1; row < uNewArr.length; row++) {
                 const newKey = `${uNewArr[row][0]}_${uNewArr[row][1]}_${uNewArr[row][2]}`;
-                const newCn = uNewArr[row][cnTextCol];
+                const newCn = uNewArr[row][cnVTextCol - 1];
 
-                const shtRow = uKeyDict[newKey];
-                const cnRows = uCnDict[newCn];
-                if (shtRow) {
-                    if (newColorDict[`${row}:${uCol}`] !== noColor) {
+                const shtVRow = uKeyVDict[newKey];
+                const cnVRows = uCnVDict[newCn];
+                if (shtVRow) {
+                    if (uColorDict[`${row}:${uCol}`] !== noColor) {
                         const _newVal = uNewArr[row][uCol];
-                        if (uArr[shtRow - 1][uCol] !== _newVal) {
-                            uSht.Cells.Item(shtRow, uCol + 1).Value2 = _newVal;
+                        if (uArr[shtVRow - 1][uCol] !== _newVal) {
+                            uSht.Cells.Item(shtVRow, uCol + 1).Value2 = _newVal;
                         }
                     }
                 }
-                else if (cnRows) {
-                    if (newColorDict[`${row}:${uCol}`] !== noColor) {
-                        for (const cnR of cnRows) {
-                            const _oriVal = uArr[cnR - 1][uCol];
+                else if (cnVRows) {
+                    if (uColorDict[`${row}:${uCol}`] !== noColor) {
+                        for (const cnVR of cnVRows) {
+                            const _oriVal = uArr[cnVR - 1][uCol];
                             const _newVal = uNewArr[row][uCol];
                             if (!_oriVal) {
-                                uSht.Cells.Item(cnR, uCol + 1).Value2 = _newVal;
+                                uSht.Cells.Item(cnVR, uCol + 1).Value2 = _newVal;
                             }
                         }
                     }
@@ -147,22 +157,22 @@ function updateHighlight() {
         else {
             for (let row = 1; row < uNewArr.length; row++) {
                 const newKey = `${uNewArr[row][0]}_${uNewArr[row][1]}_${uNewArr[row][2]}`;
-                const newCn = uNewArr[row][cnTextCol];
+                const newCn = uNewArr[row][cnVTextCol - 1];
 
-                const shtRow = uKeyDict[newKey];
-                const cnRows = uCnDict[newCn];
-                if (shtRow) {
+                const shtVRow = uKeyVDict[newKey];
+                const cnVRows = uCnVDict[newCn];
+                if (shtVRow) {
                     const _newVal = uNewArr[row][uCol];
-                    if (uArr[shtRow - 1][uCol] !== _newVal) {
-                        uSht.Cells.Item(shtRow, uCol + 1).Value2 = _newVal;
+                    if (uArr[shtVRow - 1][uCol] !== _newVal) {
+                        uSht.Cells.Item(shtVRow, uCol + 1).Value2 = _newVal;
                     }
                 }
-                else if (cnRows) {
-                    for (const cnR of cnRows) {
-                        const _oriVal = uArr[cnR - 1][uCol];
+                else if (cnVRows) {
+                    for (const cnVR of cnVRows) {
+                        const _oriVal = uArr[cnVR - 1][uCol];
                         const _newVal = uNewArr[row][uCol];
                         if (!_oriVal) {
-                            uSht.Cells.Item(cnR, uCol + 1).Value2 = _newVal;
+                            uSht.Cells.Item(cnVR, uCol + 1).Value2 = _newVal;
                         }
                     }
                 }
@@ -177,12 +187,12 @@ function updateHighlight() {
         return;
     }
     const arr = sht.UsedRange.Value2;
-    const [keyDict, cnDict] = getKeyDict(arr);
-    if (keyDict === false) {
+    const [keyVDict, cnVDict] = getKeyDict(arr);
+    if (keyVDict === false) {
         return;
     }
 
-    if (arr[0].length < cnTextCol + 1) {
+    if (arr[0].length < cnVTextCol - 1 + 1) {
         MsgBox("总表列数太少，请确认选择了正确的总表！")
         return;
     }
@@ -202,7 +212,7 @@ function updateHighlight() {
     const isHighlightOnly = highlightChoice === 6 ? true : false
 
     Application.ScreenUpdating = false;
-    const [newArr, newColorDict, langCol] = getNewShtArr(newShtPath, isHighlightOnly);
+    const [newArr, newColorDict, langVCol] = getNewShtArr(newShtPath, isHighlightOnly);
 
     if (!newArr) {
         return;
@@ -219,13 +229,14 @@ function updateHighlight() {
 
 
     //更新逻辑
-    if (langCol < 3) {
-        for (let col = 2; col < newArr[0].length; col++) {
-            updateOneColumn(arr, newArr, col, keyDict, cnDict, newColorDict, isHighlightOnly, sht)
+    if (langVCol === 0) {
+        let enTextCol = cnVTextCol - 1;
+        for (let col = enTextCol; col < newArr[0].length; col++) {
+            updateOneColumn(arr, newArr, col, keyVDict, cnVDict, newColorDict, isHighlightOnly, sht)
         }
     }
     else {
-        updateOneColumn(arr, newArr, langCol - 1, keyDict, cnDict, newColorDict, isHighlightOnly, sht)
+        updateOneColumn(arr, newArr, langVCol - 1, keyVDict, cnVDict, newColorDict, isHighlightOnly, sht)
     }
 
     Application.ScreenUpdating = true;
